@@ -344,7 +344,8 @@ public final class CFMetaData
 
         assert partitioner != null : "This assertion failure is probably due to accessing Schema.instance " +
                                      "from client-mode tools - See CASSANDRA-8143.";
-        this.partitioner = partitioner;
+        // Lexis: the partitioner computes tokens from the partition key types.
+        this.partitioner = org.lexis.dht.LexisByteOrderedPartitioner.forTable(partitioner, extractTypes(partitionKeyColumns));
 
         // A compact table should always have a clustering
         assert isCQLTable() || !clusteringColumns.isEmpty() : String.format("For table %s.%s, isDense=%b, isCompound=%b, clustering=%s", ksName, cfName, isDense, isCompound, clusteringColumns);

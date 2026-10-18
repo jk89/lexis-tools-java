@@ -519,7 +519,11 @@ public class FBUtilities
             assert comparator.isPresent() : "Expected a comparator for local partitioner";
             return new LocalPartitioner(comparator.get());
         }
-        return FBUtilities.instanceOrConstruct(partitionerClassName, "partitioner");
+        IPartitioner partitioner = FBUtilities.instanceOrConstruct(partitionerClassName, "partitioner");
+        // Lexis: with the sstable's key type, the partitioner can compute tokens from keys.
+        if (comparator.isPresent())
+            partitioner = org.lexis.dht.LexisByteOrderedPartitioner.forKeyValidator(partitioner, comparator.get());
+        return partitioner;
     }
 
     public static IAuthorizer newAuthorizer(String className) throws ConfigurationException
