@@ -16,7 +16,11 @@ import org.apache.cassandra.db.marshal.*;
  *
  * Each component is type-encoded, its 0x00 bytes are escaped as 0x00 0x01,
  * and it is terminated by 0x00 0x00. Unsigned byte order of the result is
- * partition key order for the types with an exact rule.
+ * partition key order for the types with an exact rule. A component of a
+ * column declared DESC in PARTITION ORDER BY (a ReversedType) is that encoding
+ * bitwise complemented, terminator included. The design (Direction, the 0xFF
+ * 0xFF descending terminator) is from kaebase:
+ * https://github.com/kaepek/kaebase/blob/FEAT/scaling/v2/crates/common/src/encoding/cluster_key.rs
  */
 public final class LexisOrderedEncoding
 {
@@ -64,7 +68,10 @@ public final class LexisOrderedEncoding
     // https://github.com/kaepek/kaebase/blob/FEAT/scaling/v2/crates/common/src/encoding/float.rs
     static long float64ToLex(double v)
     {
-        long bits = Double.doubleToRawLongBits(v);
+        // CQL compares floats as Java's Double.compare does: every NaN equals
+        // every other NaN and sorts above everything, so all NaNs encode as
+        // the canonical NaN.
+        long bits = Double.doubleToLongBits(v);
         return bits >= 0 ? bits | Long.MIN_VALUE : ~bits;
     }
 
@@ -173,15 +180,57 @@ public final class LexisOrderedEncoding
         return true;
     }
 
+    // time_hi (version masked), time_mid, time_low.
+    private static void timeFields(ByteArrayOutputStream buf, byte[] raw)
+    {
+        escape(buf, raw[6] & 0x0f);
+        for (int i : new int[]{ 7, 4, 5, 0, 1, 2, 3 })
+            escape(buf, raw[i]);
+    }
+
+    // CQL order: the time fields, the clock sequence and node as signed bytes,
+    // then the version nibble.
+    private static void encodeTimeUUID(ByteArrayOutputStream buf, byte[] raw)
+    {
+        timeFields(buf, raw);
+        for (int i = 8; i < 16; i++)
+            escape(buf, raw[i] ^ 0x80);
+        escape(buf, (raw[6] & 0xff) >>> 4);
+    }
+
+    // CQL order: the version, then for version 1 the time fields and the rest
+    // unsigned, for other versions all bytes in order.
+    private static void encodeUUID(ByteArrayOutputStream buf, byte[] raw)
+    {
+        int version = (raw[6] & 0xff) >>> 4;
+        escape(buf, version);
+        if (version == 1)
+        {
+            timeFields(buf, raw);
+            for (int i = 8; i < 16; i++)
+                escape(buf, raw[i]);
+        }
+        else
+        {
+            escapeAll(buf, raw);
+        }
+    }
+
     private static void encodeComponent(ByteArrayOutputStream buf, AbstractType<?> type, byte[] raw)
     {
+        if (type instanceof ReversedType)
+        {
+            ByteArrayOutputStream asc = new ByteArrayOutputStream();
+            encodeComponent(asc, ((ReversedType<?>) type).baseType, raw);
+            for (byte b : asc.toByteArray())
+                buf.write(~b & 0xff);
+            return;
+        }
         if (raw.length == 0)
         {
             terminate(buf);
             return;
         }
-        if (type instanceof ReversedType)
-            type = ((ReversedType<?>) type).baseType;
 
         if ((type instanceof LongType || type instanceof CounterColumnType) && raw.length == 8)
         {
@@ -230,9 +279,17 @@ public final class LexisOrderedEncoding
             if (!encodeDecimal(buf, raw))
                 escapeAll(buf, raw);
         }
+        else if (type instanceof TimeUUIDType && raw.length == 16)
+        {
+            encodeTimeUUID(buf, raw);
+        }
+        else if (type instanceof UUIDType && raw.length == 16)
+        {
+            encodeUUID(buf, raw);
+        }
         else
         {
-            // Text, ascii, blob, uuid, timeuuid, inet, duration, and types with no
+            // Text, ascii, blob, inet, duration, and types with no
             // order-preserving rule (tuples, UDTs, collections): raw bytes, like the server.
             escapeAll(buf, raw);
         }

@@ -24,6 +24,9 @@ public class LexisOrderedEncodingTest
 {
     private static AbstractType<?> type(String name)
     {
+        // DESC columns are written desc(<type>).
+        if (name.startsWith("desc(") && name.endsWith(")"))
+            return ReversedType.getInstance(type(name.substring(5, name.length() - 1)));
         switch (name)
         {
             case "int": return Int32Type.instance;
@@ -41,6 +44,8 @@ public class LexisOrderedEncodingTest
             case "varint": return IntegerType.instance;
             case "decimal": return DecimalType.instance;
             case "uuid": return UUIDType.instance;
+            case "timeuuid": return TimeUUIDType.instance;
+            case "inet": return InetAddressType.instance;
             default: throw new IllegalArgumentException(name);
         }
     }
@@ -68,7 +73,7 @@ public class LexisOrderedEncodingTest
             assertArrayEquals("vector: " + line, Hex.hexToBytes(parts[2]), got);
             n++;
         }
-        assertEquals(640, n);
+        assertEquals(1030, n);
     }
 
     @Test
