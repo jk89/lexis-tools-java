@@ -16,8 +16,6 @@ The tools read and write Lexis sstables (`sstabledump`, `sstablemetadata`,
 `sstableloader`), and `nodetool` works against a Lexis node. Tokens are shown
 and accepted as hex, for example in `nodetool repair -st ... -et ...`.
 
-Docker image: `docker pull 0x6a6f6e6e79/lexis-tools-java`
-
 ## Base and licence
 
 Forked from ScyllaDB's scylla-tools-java at commit `e505a6d3bb`. Licensed
